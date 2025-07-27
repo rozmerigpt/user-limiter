@@ -69,7 +69,14 @@ export default async function handler(req, res) {
     const secondaryKey = await hashString(`${clientIP}-${deviceFingerprint}`);
     const tertiaryKey = await hashString(`${userAgent.substring(0, 30)}-${deviceFingerprint}`);
     
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    // Get current UTC date for consistent timezone handling
+    const now = new Date();
+    const utcDate = now.toISOString().split('T')[0]; // YYYY-MM-DD in UTC
+    const utcHour = now.getUTCHours();
+    const utcMinute = now.getUTCMinutes();
+    
+    // Check if it's past midnight UTC (00:00)
+    const isNewDay = utcHour === 0 && utcMinute < 5; // Allow 5-minute window for reset
     
     // Check for suspicious activity (multiple user IDs from same IP)
     await checkSuspiciousActivity(clientIP, userId);
@@ -80,9 +87,6 @@ export default async function handler(req, res) {
       
       case 'get_remaining':
         return await handleGetRemaining(primaryKey, secondaryKey, tertiaryKey, res, clientIP);
-      
-      case 'reset':
-        return await handleReset(primaryKey, secondaryKey, tertiaryKey, res, clientIP);
       
       default:
         return res.status(400).json({ error: 'Invalid action' });
@@ -122,12 +126,25 @@ async function checkSuspiciousActivity(clientIP, userId) {
 }
 
 async function handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, res, clientIP, userId) {
-  const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const utcDate = now.toISOString().split('T')[0];
+  const utcHour = now.getUTCHours();
+  const utcMinute = now.getUTCMinutes();
+  
+  // Check if it's past midnight UTC (00:00) - allow 5-minute window
+  const isNewDay = utcHour === 0 && utcMinute < 5;
+  
+  // If it's a new day, reset the counts
+  if (isNewDay) {
+    dailyLimits.delete(`${primaryKey}:${utcDate}`);
+    dailyLimits.delete(`${secondaryKey}:${utcDate}`);
+    dailyLimits.delete(`${tertiaryKey}:${utcDate}`);
+  }
   
   // Check all three keys for the highest count
-  const primaryCount = dailyLimits.get(`${primaryKey}:${today}`) || 0;
-  const secondaryCount = dailyLimits.get(`${secondaryKey}:${today}`) || 0;
-  const tertiaryCount = dailyLimits.get(`${tertiaryKey}:${today}`) || 0;
+  const primaryCount = dailyLimits.get(`${primaryKey}:${utcDate}`) || 0;
+  const secondaryCount = dailyLimits.get(`${secondaryKey}:${utcDate}`) || 0;
+  const tertiaryCount = dailyLimits.get(`${tertiaryKey}:${utcDate}`) || 0;
   
   const currentCount = Math.max(primaryCount, secondaryCount, tertiaryCount);
   
@@ -138,16 +155,17 @@ async function handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, re
       used: currentCount,
       message: 'Daily limit reached',
       ip: clientIP,
-      timestamp: new Date().toISOString(),
-      security: 'Enhanced tracking active'
+      timestamp: now.toISOString(),
+      security: 'Enhanced tracking active',
+      resetTime: getNextResetTime()
     });
   }
 
   // Increment all three keys for redundancy
   const newCount = currentCount + 1;
-  dailyLimits.set(`${primaryKey}:${today}`, newCount);
-  dailyLimits.set(`${secondaryKey}:${today}`, newCount);
-  dailyLimits.set(`${tertiaryKey}:${today}`, newCount);
+  dailyLimits.set(`${primaryKey}:${utcDate}`, newCount);
+  dailyLimits.set(`${secondaryKey}:${utcDate}`, newCount);
+  dailyLimits.set(`${tertiaryKey}:${utcDate}`, newCount);
 
   // Clean up old entries (older than 2 days)
   cleanupOldEntries();
@@ -158,17 +176,19 @@ async function handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, re
     used: newCount,
     message: 'Comment generated successfully',
     ip: clientIP,
-    timestamp: new Date().toISOString(),
-    security: 'Enhanced tracking active'
+    timestamp: now.toISOString(),
+    security: 'Enhanced tracking active',
+    resetTime: getNextResetTime()
   });
 }
 
 async function handleGetRemaining(primaryKey, secondaryKey, tertiaryKey, res, clientIP) {
-  const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const utcDate = now.toISOString().split('T')[0];
   
-  const primaryCount = dailyLimits.get(`${primaryKey}:${today}`) || 0;
-  const secondaryCount = dailyLimits.get(`${secondaryKey}:${today}`) || 0;
-  const tertiaryCount = dailyLimits.get(`${tertiaryKey}:${today}`) || 0;
+  const primaryCount = dailyLimits.get(`${primaryKey}:${utcDate}`) || 0;
+  const secondaryCount = dailyLimits.get(`${secondaryKey}:${utcDate}`) || 0;
+  const tertiaryCount = dailyLimits.get(`${tertiaryKey}:${utcDate}`) || 0;
   
   const currentCount = Math.max(primaryCount, secondaryCount, tertiaryCount);
   const remaining = Math.max(0, 10 - currentCount);
@@ -178,25 +198,21 @@ async function handleGetRemaining(primaryKey, secondaryKey, tertiaryKey, res, cl
     used: currentCount,
     total: 10,
     ip: clientIP,
-    timestamp: new Date().toISOString(),
-    security: 'Enhanced tracking active'
+    timestamp: now.toISOString(),
+    security: 'Enhanced tracking active',
+    resetTime: getNextResetTime()
   });
 }
 
-async function handleReset(primaryKey, secondaryKey, tertiaryKey, res, clientIP) {
-  const today = new Date().toISOString().split('T')[0];
+// Removed manual reset function - now using automatic UTC-based resets
+
+function getNextResetTime() {
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  tomorrow.setUTCHours(0, 0, 0, 0);
   
-  dailyLimits.delete(`${primaryKey}:${today}`);
-  dailyLimits.delete(`${secondaryKey}:${today}`);
-  dailyLimits.delete(`${tertiaryKey}:${today}`);
-  
-  return res.json({
-    success: true,
-    message: 'Daily limit reset successfully',
-    ip: clientIP,
-    timestamp: new Date().toISOString(),
-    security: 'Enhanced tracking active'
-  });
+  return tomorrow.toISOString();
 }
 
 function cleanupOldEntries() {
