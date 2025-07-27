@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test - LinkedIn Limit Controller</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        .input-group { margin: 10px 0; }
+        input, button { padding: 8px; margin: 5px; border-radius: 4px; border: 1px solid #ccc; }
+        input { width: 300px; }
+        button { background: #007bff; color: white; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin: 10px 0; padding: 10px; border-radius: 4px; }
+        .success { background: #d4edda; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; border: 1px solid #bee5eb; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔧 LinkedIn Limit Controller - API Test</h1>
+    
+    <div class="test-section">
+        <h3>📝 Step 1: Enter Your Vercel API URL</h3>
+        <div class="input-group">
+            <label>API URL:</label><br>
+            <input type="text" id="api-url" placeholder="https://your-project-name.vercel.app/api/daily-limit" value="">
+            <button onclick="testConnection()">🔗 Test Connection</button>
+        </div>
+        <div id="connection-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>🧪 Step 2: Test Daily Limits</h3>
+        <div class="input-group">
+            <label>User ID:</label><br>
+            <input type="text" id="user-id" value="test-user-123">
+            <button onclick="testCheckAndIncrement()">➕ Test Check & Increment</button>
+            <button onclick="testGetRemaining()">📊 Get Remaining</button>
+            <button onclick="testReset()">🔄 Reset Limit</button>
+        </div>
+        <div id="test-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>📋 Step 3: Extension Integration</h3>
+        <p>After testing, update your extension's <code>vercel-limit-tracker.js</code>:</p>
+        <pre><code>// Replace this line:
+this.apiUrl = 'https://your-vercel-app.vercel.app/api/daily-limit';
+
+// With your actual URL:
+this.apiUrl = 'https://your-project-name.vercel.app/api/daily-limit';</code></pre>
+    </div>
+
+    <script>
+        async function testConnection() {
+            const apiUrl = document.getElementById('api-url').value;
+            const resultDiv = document.getElementById('connection-result');
+            
+            if (!apiUrl) {
+                resultDiv.innerHTML = '<div class="result error">❌ Please enter an API URL</div>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: 'connection-test',
+                        action: 'get_remaining'
+                    })
+                });
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = '<div class="result success">✅ Connection successful! API is working.</div>';
+                } else {
+                    resultDiv.innerHTML = `<div class="result error">❌ Connection failed: ${response.status} ${response.statusText}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="result error">❌ Connection error: ${error.message}</div>`;
+            }
+        }
+        
+        async function testCheckAndIncrement() {
+            const apiUrl = document.getElementById('api-url').value;
+            const userId = document.getElementById('user-id').value;
+            const resultsDiv = document.getElementById('test-results');
+            
+            if (!apiUrl) {
+                resultsDiv.innerHTML = '<div class="result error">❌ Please enter an API URL first</div>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId,
+                        action: 'check_and_increment'
+                    })
+                });
+                
+                const result = await response.json();
+                
+                const resultHtml = `
+                    <div class="result ${result.allowed ? 'success' : 'error'}">
+                        <h4>✅ Check & Increment Result:</h4>
+                        <pre>${JSON.stringify(result, null, 2)}</pre>
+                    </div>
+                `;
+                
+                resultsDiv.innerHTML = resultHtml;
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="result error">❌ Test failed: ${error.message}</div>`;
+            }
+        }
+        
+        async function testGetRemaining() {
+            const apiUrl = document.getElementById('api-url').value;
+            const userId = document.getElementById('user-id').value;
+            const resultsDiv = document.getElementById('test-results');
+            
+            if (!apiUrl) {
+                resultsDiv.innerHTML = '<div class="result error">❌ Please enter an API URL first</div>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId,
+                        action: 'get_remaining'
+                    })
+                });
+                
+                const result = await response.json();
+                
+                const resultHtml = `
+                    <div class="result info">
+                        <h4>📊 Remaining Count Result:</h4>
+                        <pre>${JSON.stringify(result, null, 2)}</pre>
+                    </div>
+                `;
+                
+                resultsDiv.innerHTML = resultHtml;
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="result error">❌ Test failed: ${error.message}</div>`;
+            }
+        }
+        
+        async function testReset() {
+            const apiUrl = document.getElementById('api-url').value;
+            const userId = document.getElementById('user-id').value;
+            const resultsDiv = document.getElementById('test-results');
+            
+            if (!apiUrl) {
+                resultsDiv.innerHTML = '<div class="result error">❌ Please enter an API URL first</div>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId,
+                        action: 'reset'
+                    })
+                });
+                
+                const result = await response.json();
+                
+                const resultHtml = `
+                    <div class="result ${result.success ? 'success' : 'error'}">
+                        <h4>🔄 Reset Result:</h4>
+                        <pre>${JSON.stringify(result, null, 2)}</pre>
+                    </div>
+                `;
+                
+                resultsDiv.innerHTML = resultHtml;
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="result error">❌ Test failed: ${error.message}</div>`;
+            }
+        }
+        
+        // Auto-fill common Vercel URL pattern
+        window.onload = function() {
+            const urlInput = document.getElementById('api-url');
+            if (!urlInput.value) {
+                urlInput.placeholder = 'https://your-project-name.vercel.app/api/daily-limit';
+            }
+        };
+    </script>
+</body>
+</html> 
