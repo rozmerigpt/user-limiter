@@ -1,4 +1,4 @@
-// Vercel serverless function for daily limits
+// Enhanced Vercel serverless function with IP tracking
 // Deploy this to your Vercel account
 
 // In-memory storage (resets on cold start, but works for daily limits)
@@ -19,24 +19,40 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { userId, action } = req.body;
+    const { userId, action, deviceFingerprint } = req.body;
 
     if (!userId) {
       return res.status(400).json({ error: 'User ID required' });
     }
 
+    // Get client IP address
+    const clientIP = req.headers['x-forwarded-for'] || 
+                    req.headers['x-real-ip'] || 
+                    req.connection.remoteAddress || 
+                    req.socket.remoteAddress;
+
+    // Create enhanced unique identifier
+    const userAgent = req.headers['user-agent'] || '';
+    const acceptLanguage = req.headers['accept-language'] || '';
+    
+    // Combine IP + User Agent + User ID + Device Fingerprint for maximum security
+    const uniqueIdentifier = `${clientIP}-${userAgent.substring(0, 50)}-${userId}-${deviceFingerprint || 'default'}`;
+    
+    // Hash the identifier for security
+    const hashedId = await hashString(uniqueIdentifier);
+    
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const key = `${userId}:${today}`;
+    const key = `daily_limit:${hashedId}:${today}`;
 
     switch (action) {
       case 'check_and_increment':
-        return await handleCheckAndIncrement(key, res);
+        return await handleCheckAndIncrement(key, res, clientIP);
       
       case 'get_remaining':
-        return await handleGetRemaining(key, res);
+        return await handleGetRemaining(key, res, clientIP);
       
       case 'reset':
-        return await handleReset(key, res);
+        return await handleReset(key, res, clientIP);
       
       default:
         return res.status(400).json({ error: 'Invalid action' });
@@ -52,7 +68,7 @@ export default async function handler(req, res) {
   }
 }
 
-async function handleCheckAndIncrement(key, res) {
+async function handleCheckAndIncrement(key, res, clientIP) {
   const currentCount = dailyLimits.get(key) || 0;
   
   if (currentCount >= 10) {
@@ -60,7 +76,9 @@ async function handleCheckAndIncrement(key, res) {
       allowed: false,
       remaining: 0,
       used: currentCount,
-      message: 'Daily limit reached'
+      message: 'Daily limit reached',
+      ip: clientIP,
+      timestamp: new Date().toISOString()
     });
   }
 
@@ -75,27 +93,33 @@ async function handleCheckAndIncrement(key, res) {
     allowed: true,
     remaining: 10 - newCount,
     used: newCount,
-    message: 'Comment generated successfully'
+    message: 'Comment generated successfully',
+    ip: clientIP,
+    timestamp: new Date().toISOString()
   });
 }
 
-async function handleGetRemaining(key, res) {
+async function handleGetRemaining(key, res, clientIP) {
   const currentCount = dailyLimits.get(key) || 0;
   const remaining = Math.max(0, 10 - currentCount);
 
   return res.json({
     remaining,
     used: currentCount,
-    total: 10
+    total: 10,
+    ip: clientIP,
+    timestamp: new Date().toISOString()
   });
 }
 
-async function handleReset(key, res) {
+async function handleReset(key, res, clientIP) {
   dailyLimits.delete(key);
   
   return res.json({
     success: true,
-    message: 'Daily limit reset successfully'
+    message: 'Daily limit reset successfully',
+    ip: clientIP,
+    timestamp: new Date().toISOString()
   });
 }
 
@@ -105,9 +129,18 @@ function cleanupOldEntries() {
   const cutoffDate = twoDaysAgo.toISOString().split('T')[0];
 
   for (const [key] of dailyLimits) {
-    const date = key.split(':')[1];
+    const date = key.split(':')[2];
     if (date < cutoffDate) {
       dailyLimits.delete(key);
     }
   }
+}
+
+// Simple hash function for security
+async function hashString(str) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
 } 
