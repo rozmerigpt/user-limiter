@@ -35,7 +35,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { userId, action, deviceFingerprint } = req.body;
+    const { userId, action, deviceFingerprint, type = 'comments' } = req.body;
 
     if (!userId) {
       return res.status(400).json({ error: 'User ID required' });
@@ -83,10 +83,10 @@ export default async function handler(req, res) {
 
     switch (action) {
       case 'check_and_increment':
-        return await handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, res, clientIP, userId);
+        return await handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, res, clientIP, userId, type);
       
       case 'get_remaining':
-        return await handleGetRemaining(primaryKey, secondaryKey, tertiaryKey, res, clientIP);
+        return await handleGetRemaining(primaryKey, secondaryKey, tertiaryKey, res, clientIP, type);
       
       default:
         return res.status(400).json({ error: 'Invalid action' });
@@ -125,7 +125,7 @@ async function checkSuspiciousActivity(clientIP, userId) {
   suspiciousActivity.set(ipKey, userIds);
 }
 
-async function handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, res, clientIP, userId) {
+async function handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, res, clientIP, userId, type = 'comments') {
   const now = new Date();
   const utcDate = now.toISOString().split('T')[0];
   const utcHour = now.getUTCHours();
@@ -134,26 +134,30 @@ async function handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, re
   // Check if it's past midnight UTC (00:00) - allow 5-minute window
   const isNewDay = utcHour === 0 && utcMinute < 5;
   
-  // If it's a new day, reset the counts
+  // Set limits based on type
+  const dailyLimit = type === 'posts' ? 5 : 10;
+  const typeSuffix = `:${type}`;
+  
+  // If it's a new day, reset the counts for this type
   if (isNewDay) {
-    dailyLimits.delete(`${primaryKey}:${utcDate}`);
-    dailyLimits.delete(`${secondaryKey}:${utcDate}`);
-    dailyLimits.delete(`${tertiaryKey}:${utcDate}`);
+    dailyLimits.delete(`${primaryKey}:${utcDate}${typeSuffix}`);
+    dailyLimits.delete(`${secondaryKey}:${utcDate}${typeSuffix}`);
+    dailyLimits.delete(`${tertiaryKey}:${utcDate}${typeSuffix}`);
   }
   
   // Check all three keys for the highest count
-  const primaryCount = dailyLimits.get(`${primaryKey}:${utcDate}`) || 0;
-  const secondaryCount = dailyLimits.get(`${secondaryKey}:${utcDate}`) || 0;
-  const tertiaryCount = dailyLimits.get(`${tertiaryKey}:${utcDate}`) || 0;
+  const primaryCount = dailyLimits.get(`${primaryKey}:${utcDate}${typeSuffix}`) || 0;
+  const secondaryCount = dailyLimits.get(`${secondaryKey}:${utcDate}${typeSuffix}`) || 0;
+  const tertiaryCount = dailyLimits.get(`${tertiaryKey}:${utcDate}${typeSuffix}`) || 0;
   
   const currentCount = Math.max(primaryCount, secondaryCount, tertiaryCount);
   
-  if (currentCount >= 10) {
+  if (currentCount >= dailyLimit) {
     return res.json({
       allowed: false,
       remaining: 0,
       used: currentCount,
-      message: 'Daily limit reached',
+      message: `Daily ${type} limit reached`,
       ip: clientIP,
       timestamp: now.toISOString(),
       security: 'Enhanced tracking active',
@@ -163,18 +167,18 @@ async function handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, re
 
   // Increment all three keys for redundancy
   const newCount = currentCount + 1;
-  dailyLimits.set(`${primaryKey}:${utcDate}`, newCount);
-  dailyLimits.set(`${secondaryKey}:${utcDate}`, newCount);
-  dailyLimits.set(`${tertiaryKey}:${utcDate}`, newCount);
+  dailyLimits.set(`${primaryKey}:${utcDate}${typeSuffix}`, newCount);
+  dailyLimits.set(`${secondaryKey}:${utcDate}${typeSuffix}`, newCount);
+  dailyLimits.set(`${tertiaryKey}:${utcDate}${typeSuffix}`, newCount);
 
   // Clean up old entries (older than 2 days)
   cleanupOldEntries();
 
   return res.json({
     allowed: true,
-    remaining: 10 - newCount,
+    remaining: dailyLimit - newCount,
     used: newCount,
-    message: 'Comment generated successfully',
+    message: `${type === 'posts' ? 'Post' : 'Comment'} generated successfully`,
     ip: clientIP,
     timestamp: now.toISOString(),
     security: 'Enhanced tracking active',
@@ -182,21 +186,24 @@ async function handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, re
   });
 }
 
-async function handleGetRemaining(primaryKey, secondaryKey, tertiaryKey, res, clientIP) {
+async function handleGetRemaining(primaryKey, secondaryKey, tertiaryKey, res, clientIP, type = 'comments') {
   const now = new Date();
   const utcDate = now.toISOString().split('T')[0];
   
-  const primaryCount = dailyLimits.get(`${primaryKey}:${utcDate}`) || 0;
-  const secondaryCount = dailyLimits.get(`${secondaryKey}:${utcDate}`) || 0;
-  const tertiaryCount = dailyLimits.get(`${tertiaryKey}:${utcDate}`) || 0;
+  const dailyLimit = type === 'posts' ? 5 : 10;
+  const typeSuffix = `:${type}`;
+  
+  const primaryCount = dailyLimits.get(`${primaryKey}:${utcDate}${typeSuffix}`) || 0;
+  const secondaryCount = dailyLimits.get(`${secondaryKey}:${utcDate}${typeSuffix}`) || 0;
+  const tertiaryCount = dailyLimits.get(`${tertiaryKey}:${utcDate}${typeSuffix}`) || 0;
   
   const currentCount = Math.max(primaryCount, secondaryCount, tertiaryCount);
-  const remaining = Math.max(0, 10 - currentCount);
+  const remaining = Math.max(0, dailyLimit - currentCount);
 
   return res.json({
     remaining,
     used: currentCount,
-    total: 10,
+    total: dailyLimit,
     ip: clientIP,
     timestamp: now.toISOString(),
     security: 'Enhanced tracking active',
@@ -247,3 +254,4 @@ async function hashString(str) {
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
 }
+ 
