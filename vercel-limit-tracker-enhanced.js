@@ -1,5 +1,5 @@
 // Enhanced Vercel-based Daily Limit Tracker with IP and Device Tracking
-class VercelLimitTrackerEnhanced {
+class VercelLimitTracker {
   constructor() {
     this.apiUrl = 'https://user-limiter.vercel.app/api/daily-limit';
   }
@@ -153,7 +153,7 @@ class VercelLimitTrackerEnhanced {
 }
 
 // Enhanced User ID Generator with device tracking
-class UserIdGeneratorEnhanced {
+class UserIdGenerator {
   static generateUserId() {
     // Generate a more robust user ID based on multiple factors
     const fingerprint = navigator.userAgent + 
@@ -199,5 +199,5 @@ class UserIdGeneratorEnhanced {
 
 // Export for use in other files
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { VercelLimitTrackerEnhanced, UserIdGeneratorEnhanced };
+  module.exports = { VercelLimitTracker, UserIdGenerator };
 } 

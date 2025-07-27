@@ -1,25 +1,14 @@
-# 🚀 Enhanced Vercel Deployment Guide with IP Tracking
-
-## 🔒 **Enhanced Security Features**
-
-- ✅ **IP-based tracking** - Prevents VPN abuse and multiple accounts
-- ✅ **Device fingerprinting** - Canvas, hardware specs, browser capabilities  
-- ✅ **Multi-layer security** - IP + User Agent + User ID + Device Fingerprint
-- ✅ **SHA-256 hashing** - Secure identifier generation
-- ✅ **Real-time timestamps** - Track when limits are used
-- ✅ **Enhanced debugging** - IP address and device info in responses
+# 🚀 Vercel Deployment Guide for LinkedIn Limit Controller
 
 ## 📁 **Files in this folder:**
 
 ```
-limit-controller/
-├── package.json                          # Node.js dependencies
-├── vercel.json                          # Vercel configuration
+vercel-deployment/
+├── package.json          # Node.js dependencies
+├── vercel.json          # Vercel configuration
 ├── api/
-│   └── daily-limit.js                   # Enhanced API function with IP tracking
-├── vercel-limit-tracker-enhanced.js     # Enhanced client-side tracker
-├── test-api.html                        # Test the API locally
-└── README.md                            # This guide
+│   └── daily-limit.js   # Main API function
+└── README.md            # This guide
 ```
 
 ## 🎯 **Step-by-Step Deployment Guide**
@@ -93,30 +82,6 @@ https://your-project-name.vercel.app/api/daily-limit
 
 ### **Step 5: Update Your Extension**
 
-#### **Option 1: Use Enhanced Tracker (Recommended)**
-1. **Copy `vercel-limit-tracker-enhanced.js`** to your extension folder
-2. **Update your `manifest.json`** to include the enhanced tracker:
-   ```json
-   "content_scripts": [
-     {
-       "matches": ["https://www.linkedin.com/*"],
-       "js": ["vercel-limit-tracker-enhanced.js", "content.js"],
-       "css": ["styles.css"]
-     }
-   ]
-   ```
-
-3. **Update your `content.js`** to use the enhanced tracker:
-   ```javascript
-   // Use enhanced tracker with device fingerprinting
-   const tracker = new VercelLimitTrackerEnhanced();
-   const userId = await UserIdGeneratorEnhanced.getOrCreateUserId();
-   
-   // Check limit with enhanced security
-   const limitCheck = await tracker.checkAndIncrement(userId);
-   ```
-
-#### **Option 2: Update Existing Tracker**
 1. **Open your extension's `vercel-limit-tracker.js`**
 
 2. **Replace the API URL:**
@@ -130,42 +95,22 @@ https://your-project-name.vercel.app/api/daily-limit
 
 3. **Test your extension** on LinkedIn
 
-## 🔒 **Enhanced Security Features**
-
-### **IP Tracking**
-- **Automatic IP detection** from Vercel headers
-- **Prevents VPN abuse** and multiple accounts from same IP
-- **Harder to bypass** than simple user IDs
-
-### **Device Fingerprinting**
-- **Canvas fingerprinting** (unique per device)
-- **Hardware specs** (CPU cores, memory, screen resolution)
-- **Browser capabilities** and timezone detection
-- **Multi-factor identification** for maximum security
-
-### **Anti-Bypass Protection**
-- **Multiple identifiers** make it very hard to bypass
-- **Server-side validation** prevents client manipulation
-- **Real-time tracking** with detailed timestamps
-
 ## 🧪 **Testing Your Deployment**
 
-### **Test with curl (Enhanced):**
+### **Test with curl:**
 ```bash
 curl -X POST https://your-project-name.vercel.app/api/daily-limit \
   -H "Content-Type: application/json" \
-  -d '{"userId":"test123","action":"check_and_increment","deviceFingerprint":"base64_fingerprint"}'
+  -d '{"userId":"test123","action":"check_and_increment"}'
 ```
 
-### **Enhanced Response (with IP tracking):**
+### **Expected Response:**
 ```json
 {
   "allowed": true,
   "remaining": 9,
   "used": 1,
-  "message": "Comment generated successfully",
-  "ip": "192.168.1.1",
-  "timestamp": "2024-01-15T10:30:00.000Z"
+  "message": "Comment generated successfully"
 }
 ```
 

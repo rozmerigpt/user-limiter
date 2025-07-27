@@ -1,5 +1,19 @@
-// Enhanced Vercel serverless function with IP tracking
-// Deploy this to your Vercel account
+/**
+ * Enhanced Vercel Serverless Function - Daily Limit Controller
+ * 
+ * This API handles daily limit tracking for LinkedIn Comment Generator users.
+ * Features:
+ * - IP address detection and tracking
+ * - Device fingerprinting support
+ * - Multi-layer security (IP + User Agent + User ID + Device Fingerprint)
+ * - SHA-256 hashing for secure identification
+ * - Automatic cleanup of old entries
+ * - CORS support for browser extensions
+ * 
+ * @version 1.0
+ * @author Your Name
+ * @deployment Deploy to Vercel
+ */
 
 // In-memory storage (resets on cold start, but works for daily limits)
 let dailyLimits = new Map();
