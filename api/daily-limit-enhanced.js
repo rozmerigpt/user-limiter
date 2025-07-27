@@ -223,7 +223,7 @@ function cleanupOldEntries() {
   }
 }
 
-// Simple hash function for security
+// Enhanced hash function for security
 async function hashString(str) {
   const encoder = new TextEncoder();
   const data = encoder.encode(str);
