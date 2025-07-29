@@ -3,7 +3,7 @@
  * 
  * This API handles daily limit tracking with advanced anti-bypass protection.
  * Features:
- * - Persistent storage using Vercel KV or similar
+ * - File-based persistent storage for reliability
  * - IP address detection and tracking
  * - Device fingerprinting support
  * - Multi-layer security (IP + User Agent + User ID + Device Fingerprint)
@@ -13,86 +13,111 @@
  * - Enhanced anti-bypass protection
  * - 10 comments/day, 2 posts/day limits
  * 
- * @version 1.2
+ * @version 1.3
  * @author Your Name
  * @deployment Deploy to Vercel
  */
 
-// Persistent storage using Vercel KV (if available) or fallback to in-memory
-let dailyLimits = new Map();
-let suspiciousActivity = new Map(); // Track suspicious behavior
+import fs from 'fs';
+import path from 'path';
 
-// Enhanced storage with persistence
-class PersistentStorage {
+// File-based persistent storage
+class FileBasedStorage {
   constructor() {
-    this.storage = new Map();
-    this.lastCleanup = Date.now();
+    this.storageFile = '/tmp/daily_limits.json';
+    this.suspiciousFile = '/tmp/suspicious_activity.json';
+    this.ensureFilesExist();
+  }
+
+  ensureFilesExist() {
+    try {
+      if (!fs.existsSync(this.storageFile)) {
+        fs.writeFileSync(this.storageFile, JSON.stringify({}));
+      }
+      if (!fs.existsSync(this.suspiciousFile)) {
+        fs.writeFileSync(this.suspiciousFile, JSON.stringify({}));
+      }
+    } catch (error) {
+      console.log('Using fallback storage');
+    }
   }
 
   async get(key) {
-    // Try to get from persistent storage first
     try {
-      // If Vercel KV is available, use it
-      if (typeof process !== 'undefined' && process.env.VERCEL_KV_URL) {
-        // This would require @vercel/kv package
-        // const { kv } = require('@vercel/kv');
-        // return await kv.get(key);
+      const data = JSON.parse(fs.readFileSync(this.storageFile, 'utf8'));
+      const item = data[key];
+      if (!item) return 0;
+      
+      // Check if expired (24 hours)
+      if (item.expires && Date.now() > item.expires) {
+        delete data[key];
+        fs.writeFileSync(this.storageFile, JSON.stringify(data));
+        return 0;
       }
+      
+      return item.value || 0;
     } catch (error) {
-      console.log('Using fallback storage');
+      console.log('Storage read error, using fallback');
+      return 0;
     }
-    
-    // Fallback to in-memory with enhanced persistence
-    return this.storage.get(key);
   }
 
-  async set(key, value, ttl = 86400) { // 24 hours TTL
+  async set(key, value, ttl = 86400) {
     try {
-      // If Vercel KV is available, use it
-      if (typeof process !== 'undefined' && process.env.VERCEL_KV_URL) {
-        // const { kv } = require('@vercel/kv');
-        // await kv.set(key, value, { ex: ttl });
-      }
+      const data = JSON.parse(fs.readFileSync(this.storageFile, 'utf8'));
+      data[key] = {
+        value: value,
+        expires: Date.now() + (ttl * 1000),
+        timestamp: new Date().toISOString()
+      };
+      fs.writeFileSync(this.storageFile, JSON.stringify(data));
     } catch (error) {
-      console.log('Using fallback storage');
+      console.log('Storage write error');
     }
-    
-    // Fallback to in-memory with TTL
-    this.storage.set(key, {
-      value: value,
-      expires: Date.now() + (ttl * 1000)
-    });
   }
 
-  async has(key) {
-    const item = await this.get(key);
-    if (!item) return false;
-    
-    // Check if expired
-    if (item.expires && Date.now() > item.expires) {
-      this.storage.delete(key);
-      return false;
+  async getSuspicious(ip) {
+    try {
+      const data = JSON.parse(fs.readFileSync(this.suspiciousFile, 'utf8'));
+      return data[ip] || { userIds: [], count: 0 };
+    } catch (error) {
+      return { userIds: [], count: 0 };
     }
-    
-    return true;
   }
 
-  async delete(key) {
-    this.storage.delete(key);
+  async setSuspicious(ip, data) {
+    try {
+      const fileData = JSON.parse(fs.readFileSync(this.suspiciousFile, 'utf8'));
+      fileData[ip] = data;
+      fs.writeFileSync(this.suspiciousFile, JSON.stringify(fileData));
+    } catch (error) {
+      console.log('Suspicious storage write error');
+    }
   }
 
-  // Cleanup expired entries
   cleanup() {
-    const now = Date.now();
-    for (const [key, item] of this.storage.entries()) {
-      if (item.expires && now > item.expires) {
-        this.storage.delete(key);
+    try {
+      const data = JSON.parse(fs.readFileSync(this.storageFile, 'utf8'));
+      const now = Date.now();
+      let cleaned = false;
+      
+      for (const [key, item] of Object.entries(data)) {
+        if (item.expires && now > item.expires) {
+          delete data[key];
+          cleaned = true;
+        }
       }
+      
+      if (cleaned) {
+        fs.writeFileSync(this.storageFile, JSON.stringify(data));
+      }
+    } catch (error) {
+      console.log('Cleanup error');
     }
   }
 }
 
-const persistentStorage = new PersistentStorage();
+const storage = new FileBasedStorage();
 
 export default async function handler(req, res) {
   // Enable CORS for extension
@@ -116,7 +141,7 @@ export default async function handler(req, res) {
     }
 
     // Cleanup expired entries
-    persistentStorage.cleanup();
+    storage.cleanup();
 
     // Get client IP address
     const clientIP = req.headers['x-forwarded-for'] || 
@@ -156,14 +181,14 @@ export default async function handler(req, res) {
     const isNewDay = utcHour === 0 && utcMinute < 5; // Allow 5-minute window for reset
     
     // Check for suspicious activity (multiple user IDs from same IP)
-    await checkSuspiciousActivity(clientIP, userId);
+    const isSuspicious = await checkSuspiciousActivity(clientIP, userId);
 
     switch (action) {
       case 'check_and_increment':
-        return await handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, res, clientIP, userId, type);
+        return await handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, res, clientIP, userId, type, isSuspicious);
       
       case 'get_remaining':
-        return await handleGetRemaining(primaryKey, secondaryKey, tertiaryKey, res, clientIP, type);
+        return await handleGetRemaining(primaryKey, secondaryKey, tertiaryKey, res, clientIP, type, isSuspicious);
       
       default:
         return res.status(400).json({ error: 'Invalid action' });
@@ -183,7 +208,7 @@ async function checkSuspiciousActivity(clientIP, userId) {
   const suspiciousKey = `suspicious:${clientIP}`;
   
   // Get existing suspicious activity for this IP
-  const existingActivity = await persistentStorage.get(suspiciousKey) || { userIds: new Set(), count: 0 };
+  const existingActivity = await storage.getSuspicious(clientIP);
   
   // Convert Set to Array for storage compatibility
   if (typeof existingActivity.userIds === 'object' && !Array.isArray(existingActivity.userIds)) {
@@ -194,11 +219,11 @@ async function checkSuspiciousActivity(clientIP, userId) {
   userIds.add(userId);
   
   // Update suspicious activity
-  await persistentStorage.set(suspiciousKey, {
+  await storage.setSuspicious(clientIP, {
     userIds: Array.from(userIds),
     count: userIds.size,
     lastSeen: new Date().toISOString()
-  }, 86400); // 24 hours TTL
+  });
   
   // If more than 3 different user IDs from same IP, apply stricter limits
   if (userIds.size > 3) {
@@ -209,22 +234,27 @@ async function checkSuspiciousActivity(clientIP, userId) {
   return false;
 }
 
-async function handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, res, clientIP, userId, type = 'comments') {
+async function handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, res, clientIP, userId, type = 'comments', isSuspicious) {
   const now = new Date();
   const utcDate = now.toISOString().split('T')[0];
   const utcHour = now.getUTCHours();
   const utcMinute = now.getUTCMinutes();
 
-  const dailyLimit = type === 'posts' ? 2 : 10; // Changed to 2 posts/day
+  // Apply stricter limits for suspicious activity
+  let dailyLimit = type === 'posts' ? 2 : 10;
+  if (isSuspicious) {
+    dailyLimit = type === 'posts' ? 1 : 5; // Stricter limits for suspicious IPs
+  }
+  
   const typeSuffix = `:${type}`;
 
   // Check if it's a new day (past midnight UTC)
   const isNewDay = utcHour === 0 && utcMinute < 5;
 
   // Get current counts from persistent storage
-  const primaryCount = await persistentStorage.get(`${primaryKey}:${utcDate}${typeSuffix}`) || 0;
-  const secondaryCount = await persistentStorage.get(`${secondaryKey}:${utcDate}${typeSuffix}`) || 0;
-  const tertiaryCount = await persistentStorage.get(`${tertiaryKey}:${utcDate}${typeSuffix}`) || 0;
+  const primaryCount = await storage.get(`${primaryKey}:${utcDate}${typeSuffix}`);
+  const secondaryCount = await storage.get(`${secondaryKey}:${utcDate}${typeSuffix}`);
+  const tertiaryCount = await storage.get(`${tertiaryKey}:${utcDate}${typeSuffix}`);
 
   // Use the highest count for security
   const currentCount = Math.max(primaryCount, secondaryCount, tertiaryCount);
@@ -236,14 +266,15 @@ async function handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, re
       allowed: false,
       remaining: 0,
       resetTime: resetTime,
-      message: `Daily limit of ${dailyLimit} ${type} reached. Resets at ${resetTime}`
+      message: `Daily limit of ${dailyLimit} ${type} reached. Resets at ${resetTime}`,
+      suspicious: isSuspicious
     });
   }
 
   // Increment counts in persistent storage
-  await persistentStorage.set(`${primaryKey}:${utcDate}${typeSuffix}`, currentCount + 1, 86400);
-  await persistentStorage.set(`${secondaryKey}:${utcDate}${typeSuffix}`, currentCount + 1, 86400);
-  await persistentStorage.set(`${tertiaryKey}:${utcDate}${typeSuffix}`, currentCount + 1, 86400);
+  await storage.set(`${primaryKey}:${utcDate}${typeSuffix}`, currentCount + 1, 86400);
+  await storage.set(`${secondaryKey}:${utcDate}${typeSuffix}`, currentCount + 1, 86400);
+  await storage.set(`${tertiaryKey}:${utcDate}${typeSuffix}`, currentCount + 1, 86400);
 
   const remaining = dailyLimit - (currentCount + 1);
   const resetTime = getNextResetTime();
@@ -252,21 +283,27 @@ async function handleCheckAndIncrement(primaryKey, secondaryKey, tertiaryKey, re
     allowed: true,
     remaining: remaining,
     resetTime: resetTime,
-    message: `${type.charAt(0).toUpperCase() + type.slice(1)} generated successfully. ${remaining} remaining today.`
+    message: `${type.charAt(0).toUpperCase() + type.slice(1)} generated successfully. ${remaining} remaining today.`,
+    suspicious: isSuspicious
   });
 }
 
-async function handleGetRemaining(primaryKey, secondaryKey, tertiaryKey, res, clientIP, type = 'comments') {
+async function handleGetRemaining(primaryKey, secondaryKey, tertiaryKey, res, clientIP, type = 'comments', isSuspicious) {
   const now = new Date();
   const utcDate = now.toISOString().split('T')[0];
   
-  const dailyLimit = type === 'posts' ? 2 : 10; // Changed to 2 posts/day
+  // Apply stricter limits for suspicious activity
+  let dailyLimit = type === 'posts' ? 2 : 10;
+  if (isSuspicious) {
+    dailyLimit = type === 'posts' ? 1 : 5; // Stricter limits for suspicious IPs
+  }
+  
   const typeSuffix = `:${type}`;
   
   // Get current counts from persistent storage
-  const primaryCount = await persistentStorage.get(`${primaryKey}:${utcDate}${typeSuffix}`) || 0;
-  const secondaryCount = await persistentStorage.get(`${secondaryKey}:${utcDate}${typeSuffix}`) || 0;
-  const tertiaryCount = await persistentStorage.get(`${tertiaryKey}:${utcDate}${typeSuffix}`) || 0;
+  const primaryCount = await storage.get(`${primaryKey}:${utcDate}${typeSuffix}`);
+  const secondaryCount = await storage.get(`${secondaryKey}:${utcDate}${typeSuffix}`);
+  const tertiaryCount = await storage.get(`${tertiaryKey}:${utcDate}${typeSuffix}`);
 
   // Use the highest count for security
   const currentCount = Math.max(primaryCount, secondaryCount, tertiaryCount);
@@ -276,7 +313,8 @@ async function handleGetRemaining(primaryKey, secondaryKey, tertiaryKey, res, cl
   return res.status(200).json({
     remaining: remaining,
     resetTime: resetTime,
-    message: `${remaining} ${type} remaining today. Resets at ${resetTime}`
+    message: `${remaining} ${type} remaining today. Resets at ${resetTime}`,
+    suspicious: isSuspicious
   });
 }
 
@@ -322,4 +360,4 @@ async function hashString(str) {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
-}
+} 
